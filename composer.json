@@ -1,0 +1,32 @@
+{
+    "name": "kdevhubin/pdoentitygenerator",
+    "description": "CLI tool to generate PHP PDO Entity and Repository classes from database tables",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Krishnamoorthy Velautham"
+        }
+    ],
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo": "*",
+        "symfony/yaml": "^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "kdevhub\\PdoEntityGenerator\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/pdoentitygenerator"
+    ],
+    "scripts": {
+        "post-install-cmd": [
+            "kdevhub\\PdoEntityGenerator\\Composer\\PostInstallHandler::createConfig"
+        ],
+        "post-update-cmd": [
+            "kdevhub\\PdoEntityGenerator\\Composer\\PostInstallHandler::createConfig"
+        ]
+    }
+}
