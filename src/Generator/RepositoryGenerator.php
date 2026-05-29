@@ -4,10 +4,25 @@ declare(strict_types=1);
 
 namespace kdevhub\PdoEntityGenerator\Generator;
 
+/**
+ * Generates PHP Repository class source code with PDO-based CRUD methods
+ *
+ * Produces a repository class with find, findAll, insert, update, and delete
+ * methods. All queries use prepared statements with named parameters.
+ *
+ * @package kdevhub\PdoEntityGenerator\Generator
+ */
 final class RepositoryGenerator
 {
     /**
+     * Generate the full Repository class source code
+     *
+     * @param string $className The PascalCase entity class name
+     * @param string $entityNamespace The namespace of the entity class
+     * @param string $repositoryNamespace The namespace for the generated repository
+     * @param string $tableName The database table name
      * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
+     * @return string The complete PHP source code for the repository class
      */
     public function generate(
         string $className,
@@ -41,7 +56,8 @@ final class RepositoryGenerator
         {
             public function __construct(
                 private readonly \PDO \$pdo,
-            ) {}
+            ) {
+            }
 
             public function find({$primaryPhpType} \$id): ?{$className}
             {
@@ -91,6 +107,12 @@ final class RepositoryGenerator
         PHP;
     }
 
+    /**
+     * Find the primary key column name from the column list
+     *
+     * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
+     * @return string The primary key column name, defaults to 'id'
+     */
     private function findPrimaryKey(array $columns): string
     {
         foreach ($columns as $column) {
@@ -102,6 +124,13 @@ final class RepositoryGenerator
         return 'id';
     }
 
+    /**
+     * Get the PHP type for a specific column by name
+     *
+     * @param string $columnName The database column name to look up
+     * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
+     * @return string The PHP type, defaults to 'int'
+     */
     private function getColumnPhpType(string $columnName, array $columns): string
     {
         foreach ($columns as $column) {
@@ -113,6 +142,13 @@ final class RepositoryGenerator
         return 'int';
     }
 
+    /**
+     * Build the private hydrateEntity method that maps a database row to an entity
+     *
+     * @param string $className The entity class name
+     * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
+     * @return string The hydrateEntity method source code
+     */
     private function buildHydrateBody(string $className, array $columns): string
     {
         $assignments = '';
@@ -133,7 +169,6 @@ final class RepositoryGenerator
             };
 
             if ($column['isPrimary']) {
-                // Use reflection to set the primary key since there is no setter
                 $assignments .= "        \$reflection = new \\ReflectionProperty(\$entity, '{$property}');\n";
                 $assignments .= "        \$reflection->setValue(\$entity, {$value});\n\n";
             } else {
@@ -152,6 +187,15 @@ final class RepositoryGenerator
         PHP;
     }
 
+    /**
+     * Build the insert method with prepared statement parameter bindings
+     *
+     * @param string $className The entity class name
+     * @param string $tableName The database table name
+     * @param string $primaryKey The primary key column name
+     * @param array<int, array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $nonPrimaryColumns
+     * @return string The insert method source code
+     */
     private function buildInsertMethod(
         string $className,
         string $tableName,
@@ -199,6 +243,15 @@ final class RepositoryGenerator
         PHP;
     }
 
+    /**
+     * Build the update method with prepared statement parameter bindings
+     *
+     * @param string $className The entity class name
+     * @param string $tableName The database table name
+     * @param string $primaryKey The primary key column name
+     * @param array<int, array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $nonPrimaryColumns
+     * @return string The update method source code
+     */
     private function buildUpdateMethod(
         string $className,
         string $tableName,

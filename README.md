@@ -49,7 +49,25 @@ Install the package via Composer:
 composer require kdevhubin/pdoentitygenerator
 ```
 
-On installation, a default configuration file is automatically created at `config/pdoentitygenerator.yaml`. There is no manual setup step required.
+This package is a **Composer Plugin**. On first install, Composer will prompt you to allow the plugin:
+
+```
+Do you trust "kdevhubin/pdoentitygenerator" to execute code and wish to enable it now? (writes "allow-plugins" to composer.json)
+```
+
+Type `y` to allow it. You can also pre-authorise the plugin by adding it to your project's `composer.json`:
+
+```json
+{
+    "config": {
+        "allow-plugins": {
+            "kdevhubin/pdoentitygenerator": true
+        }
+    }
+}
+```
+
+Once allowed, the plugin automatically creates `config/pdoentitygenerator.yaml` with default settings. There is no manual setup step required.
 
 ### Configuration
 
@@ -76,8 +94,9 @@ output:
 ### Quick Start
 
 ```bash
-# 1. Install the package (config file is auto-created)
+# 1. Install the package (config file is auto-created via Composer Plugin)
 composer require kdevhubin/pdoentitygenerator
+# When prompted, type 'y' to allow the plugin
 
 # 2. Update config/pdoentitygenerator.yaml with your database credentials
 nano config/pdoentitygenerator.yaml
@@ -196,7 +215,8 @@ class TestMyTableRepository
 {
     public function __construct(
         private readonly \PDO $pdo,
-    ) {}
+    ) {
+    }
 
     public function find(int $id): ?TestMyTable { ... }
     public function findAll(): array { ... }
@@ -302,7 +322,7 @@ kdevhubin/pdoentitygenerator
 │   ├── Command/
 │   │   └── GenerateEntityCommand.php   # Parses CLI args, orchestrates generation
 │   ├── Composer/
-│   │   └── PostInstallHandler.php      # Auto-creates config on composer install
+│   │   └── PostInstallHandler.php      # Composer Plugin — auto-creates config on install
 │   ├── Config/
 │   │   └── ConfigLoader.php            # Loads and validates YAML configuration
 │   ├── Database/
@@ -323,7 +343,7 @@ kdevhubin/pdoentitygenerator
 4. **Table Inspector** (`TableInspector`) — Executes `DESCRIBE <table>` to retrieve column metadata (name, type, nullability, primary key)
 5. **Entity Generator** (`EntityGenerator`) — Produces a POPO class with typed properties, getters, setters, and snake_case→camelCase conversion
 6. **Repository Generator** (`RepositoryGenerator`) — Produces a repository class with `find`, `findAll`, `insert`, `update`, `delete` methods using prepared statements
-7. **Post-Install Handler** (`PostInstallHandler`) — Composer script hook that auto-creates `config/pdoentitygenerator.yaml` when the package is installed
+7. **Post-Install Handler** (`PostInstallHandler`) — Composer Plugin (implements `PluginInterface` and `EventSubscriberInterface`) that subscribes to `POST_INSTALL_CMD` and `POST_UPDATE_CMD` events to auto-create `config/pdoentitygenerator.yaml` in the host project when the package is installed
 
 ---
 
@@ -391,22 +411,75 @@ kdevhubin/pdoentitygenerator
 |-----------------|---------|
 | `bin/pdoentitygenerator` | CLI entry point — edit to change autoloader resolution logic |
 | `src/Command/` | CLI command handling and argument parsing |
-| `src/Composer/` | Composer lifecycle hooks (post-install config creation) |
+| `src/Composer/` | Composer Plugin — subscribes to install/update events to auto-create config |
 | `src/Config/` | Configuration loading and validation |
 | `src/Database/` | Database introspection (schema reading) |
 | `src/Generator/` | Code generation — Entity and Repository templates |
 
 ### Coding Standards
 
+This project follows the [PHP Coding Standards and Best Practices](docs/PHP+Coding+Standards+and+Best+Practices.md) document. Key rules are summarised below.
+
+#### General
+
 - **PHP Version**: All code must target PHP 8.4+
 - **Strict Types**: Every PHP file must declare `declare(strict_types=1);`
-- **Namespace**: All classes use the `kdevhub\PdoEntityGenerator\` namespace
-- **Final Classes**: Mark classes as `final` unless they are designed for extension
-- **Type Hints**: All method parameters and return types must be explicitly typed
-- **Constructor Promotion**: Use constructor property promotion where appropriate
-- **Readonly Properties**: Use `readonly` for properties that should not change after construction (e.g. PDO instances)
-- **Match Expressions**: Prefer `match` over `switch` for value-based branching
+- **PSR-12**: Follow [PSR-12](https://www.php-fig.org/psr/psr-12/) Extended Coding Style
+- **Line Length**: Maximum 120 characters per line
 - **No Doctrine**: This project intentionally avoids Doctrine ORM — all database interaction uses raw PDO
+
+#### PHPDoc
+
+- All classes must have a class-level PHPDoc with `@package` tag
+- All methods must have PHPDoc with `@param`, `@return`, and `@throws` tags
+- Document all exception types the method can throw, including those from called methods
+
+```php
+/**
+ * Brief description of what the method does
+ *
+ * @param string $paramName Description of the parameter
+ * @return Type Description of the return value
+ * @throws RuntimeException When something goes wrong
+ */
+public function methodName(string $paramName): Type
+{
+    // Implementation
+}
+```
+
+#### Imports and Namespaces
+
+- All classes use the `kdevhub\PdoEntityGenerator\` namespace
+- Replace Fully Qualified Names (FQN) with `use` import statements (e.g. `use RuntimeException;` instead of `\RuntimeException`)
+- Alphabetise import statements
+- Remove unused imports
+
+#### Class Structure
+
+- Mark classes as `final` unless they are designed for extension
+- Declare visibility on all properties, methods, and constants (`public`, `protected`, `private`)
+- Order class members: constants → properties → constructor → public methods → protected methods → private methods
+
+#### PHP 8.4 Features
+
+- **Constructor Promotion**: Use constructor property promotion where appropriate
+- **Readonly Properties**: Use `readonly` for properties that should not change after construction
+- **Match Expressions**: Prefer `match` over `switch` for value-based branching
+- **Typed Constants**: Use typed constants (`const string`, `const array`)
+
+#### Strings and Arrays
+
+- Use **single quotes** for strings without variable interpolation
+- Use `{$variable}` syntax for complex interpolation in double-quoted strings
+- Use short array syntax (`[]`) with trailing commas in multiline arrays
+
+#### Best Practices
+
+- Use early returns (guard clauses) to reduce nesting — maximum 3–4 levels of indentation
+- Use named constants instead of magic numbers or strings
+- Use dependency injection — avoid `new` inside classes for dependencies
+- All database queries must use parameterised prepared statements
 
 ### Adding a New SQL Type Mapping
 
@@ -470,8 +543,10 @@ rm -f src/Entity/TestMyTable.php src/Repository/TestMyTableRepository.php
    ```
 
 2. Make your changes and verify generated output
-3. Commit with a descriptive message
-4. Push and create a pull request targeting `test-generator`
+3. Ensure all PHPDoc comments are complete with `@param`, `@return`, and `@throws` tags
+4. Verify imports are alphabetised and no FQNs are used in code
+5. Commit with a descriptive message
+6. Push and create a pull request targeting `test-generator`
 
 ---
 
@@ -479,7 +554,10 @@ rm -f src/Entity/TestMyTable.php src/Repository/TestMyTableRepository.php
 
 ### "Configuration file not found" error
 
-The `config/pdoentitygenerator.yaml` file was not created during installation. Create it manually:
+The `config/pdoentitygenerator.yaml` file was not created during installation. This usually happens when the Composer Plugin was not allowed. Either:
+
+1. Re-run `composer install` and type `y` when prompted to trust the plugin, or
+2. Manually create the file:
 
 ```bash
 mkdir -p config

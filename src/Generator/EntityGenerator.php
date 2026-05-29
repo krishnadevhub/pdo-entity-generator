@@ -4,10 +4,24 @@ declare(strict_types=1);
 
 namespace kdevhub\PdoEntityGenerator\Generator;
 
+/**
+ * Generates PHP Entity class source code from database column metadata
+ *
+ * Produces a plain PHP object (POPO) with typed properties, getters,
+ * and setters. Converts snake_case column names to camelCase properties
+ * and PascalCase class names.
+ *
+ * @package kdevhub\PdoEntityGenerator\Generator
+ */
 final class EntityGenerator
 {
     /**
+     * Generate the full Entity class source code
+     *
+     * @param string $className The PascalCase class name for the entity
+     * @param string $namespace The namespace for the generated entity
      * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
+     * @return string The complete PHP source code for the entity class
      */
     public function generate(string $className, string $namespace, array $columns): string
     {
@@ -32,6 +46,34 @@ final class EntityGenerator
         return $this->buildClassTemplate($className, $namespace, $properties, $gettersSetters);
     }
 
+    /**
+     * Convert a snake_case string to camelCase
+     *
+     * @param string $value The snake_case string to convert
+     * @return string The camelCase result
+     */
+    public static function snakeToCamelCase(string $value): string
+    {
+        return lcfirst(str_replace('_', '', ucwords($value, '_')));
+    }
+
+    /**
+     * Convert a snake_case string to PascalCase
+     *
+     * @param string $value The snake_case string to convert
+     * @return string The PascalCase result
+     */
+    public static function snakeToPascalCase(string $value): string
+    {
+        return str_replace('_', '', ucwords($value, '_'));
+    }
+
+    /**
+     * Resolve the default value expression for a column property
+     *
+     * @param array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool} $column
+     * @return string The default value assignment string
+     */
     private function resolveDefaultValue(array $column): string
     {
         if ($column['isPrimary']) {
@@ -51,6 +93,13 @@ final class EntityGenerator
         };
     }
 
+    /**
+     * Build a getter method for the given property
+     *
+     * @param string $propertyName The camelCase property name
+     * @param string $typeHint The PHP type hint including nullability
+     * @return string The getter method source code
+     */
     private function buildGetter(string $propertyName, string $typeHint): string
     {
         $methodName = 'get' . ucfirst($propertyName);
@@ -65,6 +114,14 @@ final class EntityGenerator
         PHP;
     }
 
+    /**
+     * Build a fluent setter method for the given property
+     *
+     * @param string $propertyName The camelCase property name
+     * @param string $typeHint The PHP type hint including nullability
+     * @param string $className The entity class name for the return type
+     * @return string The setter method source code
+     */
     private function buildSetter(string $propertyName, string $typeHint, string $className): string
     {
         $methodName = 'set' . ucfirst($propertyName);
@@ -81,6 +138,15 @@ final class EntityGenerator
         PHP;
     }
 
+    /**
+     * Build the complete class template with properties and methods
+     *
+     * @param string $className The PascalCase class name
+     * @param string $namespace The namespace for the entity
+     * @param string $properties The generated property declarations
+     * @param string $gettersSetters The generated getter and setter methods
+     * @return string The complete PHP class source code
+     */
     private function buildClassTemplate(
         string $className,
         string $namespace,
@@ -104,6 +170,12 @@ final class EntityGenerator
         PHP;
     }
 
+    /**
+     * Normalise heredoc indentation to standard 4-space indent
+     *
+     * @param string $code The raw heredoc output to normalise
+     * @return string The re-indented source code
+     */
     private function normaliseIndentation(string $code): string
     {
         $lines = explode("\n", $code);
@@ -111,7 +183,6 @@ final class EntityGenerator
 
         foreach ($lines as $line) {
             $trimmed = $line;
-            // Remove extra leading spaces from heredoc indentation
             if (str_starts_with($trimmed, '            ')) {
                 $trimmed = '    ' . ltrim($trimmed);
             }
@@ -119,15 +190,5 @@ final class EntityGenerator
         }
 
         return implode("\n", $normalised);
-    }
-
-    public static function snakeToCamelCase(string $value): string
-    {
-        return lcfirst(str_replace('_', '', ucwords($value, '_')));
-    }
-
-    public static function snakeToPascalCase(string $value): string
-    {
-        return str_replace('_', '', ucwords($value, '_'));
     }
 }

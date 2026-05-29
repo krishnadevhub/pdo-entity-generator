@@ -4,12 +4,15 @@
 declare(strict_types=1);
 
 /**
- * PDO Entity Generator CLI
+ * PDO Entity Generator CLI entry point
+ *
+ * Resolves the Composer autoloader from either the host project's vendor
+ * directory or the local development vendor directory, then delegates
+ * to the GenerateEntityCommand.
  *
  * Usage: vendor/bin/pdoentitygenerator table <table_name>
  */
 
-// Resolve autoloader from the host project or local vendor
 $autoloadPaths = [
     __DIR__ . '/../../../autoload.php',
     __DIR__ . '/../vendor/autoload.php',
