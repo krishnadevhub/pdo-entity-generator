@@ -37,11 +37,12 @@ final class RepositoryGenerator
 
         $hydrateBody = $this->buildHydrateBody($className, $columns);
         $insertMethod = $this->buildInsertMethod($className, $tableName, $primaryKey, $nonPrimaryColumns);
-        $updateMethod = $this->buildUpdateMethod($className, $tableName, $primaryKey, $nonPrimaryColumns);
+        $updateMethod = $this->buildUpdateMethod($className, $tableName, $primaryKey, $nonPrimaryColumns, $columns);
 
         $primaryProperty = EntityGenerator::snakeToCamelCase($primaryKey);
         $primaryGetter = 'get' . ucfirst($primaryProperty);
         $primaryPhpType = $this->getColumnPhpType($primaryKey, $columns);
+        $primaryPdoType = $this->resolvePdoParamType($primaryPhpType);
 
         return <<<PHP
         <?php
@@ -63,7 +64,8 @@ final class RepositoryGenerator
             {
                 \$sql = 'SELECT * FROM `{$tableName}` WHERE `{$primaryKey}` = :id LIMIT 1';
                 \$statement = \$this->pdo->prepare(\$sql);
-                \$statement->execute(['id' => \$id]);
+                \$statement->bindValue(':id', \$id, {$primaryPdoType});
+                \$statement->execute();
 
                 \$row = \$statement->fetch(\PDO::FETCH_ASSOC);
 
@@ -96,7 +98,8 @@ final class RepositoryGenerator
             {
                 \$sql = 'DELETE FROM `{$tableName}` WHERE `{$primaryKey}` = :id';
                 \$statement = \$this->pdo->prepare(\$sql);
-                \$statement->execute(['id' => \$id]);
+                \$statement->bindValue(':id', \$id, {$primaryPdoType});
+                \$statement->execute();
 
                 return \$statement->rowCount() > 0;
             }
@@ -140,6 +143,51 @@ final class RepositoryGenerator
         }
 
         return 'int';
+    }
+
+    /**
+     * Resolve the PDO parameter type constant for a given PHP type
+     *
+     * @param string $phpType The PHP type string
+     * @return string The PDO parameter type constant as a code string
+     */
+    private function resolvePdoParamType(string $phpType): string
+    {
+        return match ($phpType) {
+            'int' => '\PDO::PARAM_INT',
+            'bool' => '\PDO::PARAM_BOOL',
+            default => '\PDO::PARAM_STR',
+        };
+    }
+
+    /**
+     * Build a bindValue line for a column in generated repository code
+     *
+     * Generates the appropriate bindValue call based on the column's PHP type
+     * and nullability. Nullable columns use a ternary to switch between the
+     * typed PDO constant and PDO::PARAM_NULL.
+     *
+     * @param string $colName The database column name
+     * @param string $getter The entity getter method name
+     * @param array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool} $column
+     * @return string The generated bindValue statement line
+     */
+    private function buildBindValueLine(string $colName, string $getter, array $column): string
+    {
+        $pdoType = $this->resolvePdoParamType($column['phpType']);
+        $varName = EntityGenerator::snakeToCamelCase($colName) . 'Value';
+
+        $value = match ($column['phpType']) {
+            '\DateTimeImmutable' => "\$entity->{$getter}()?->format('Y-m-d H:i:s')",
+            default => "\$entity->{$getter}()",
+        };
+
+        if ($column['nullable']) {
+            return "            \${$varName} = {$value};\n"
+                . "            \$statement->bindValue(':{$colName}', \${$varName}, \${$varName} !== null ? {$pdoType} : \\PDO::PARAM_NULL);";
+        }
+
+        return "            \$statement->bindValue(':{$colName}', {$value}, {$pdoType});";
     }
 
     /**
@@ -188,7 +236,7 @@ final class RepositoryGenerator
     }
 
     /**
-     * Build the insert method with prepared statement parameter bindings
+     * Build the insert method with bindValue parameter bindings
      *
      * @param string $className The entity class name
      * @param string $tableName The database table name
@@ -204,7 +252,7 @@ final class RepositoryGenerator
     ): string {
         $columnNames = [];
         $placeholders = [];
-        $paramBindings = [];
+        $bindStatements = [];
 
         foreach ($nonPrimaryColumns as $column) {
             $colName = $column['name'];
@@ -213,16 +261,12 @@ final class RepositoryGenerator
             $columnNames[] = "`{$colName}`";
             $placeholders[] = ":{$colName}";
 
-            $paramBindings[] = match ($column['phpType']) {
-                '\\DateTimeImmutable' => "            '{$colName}' => \$entity->{$getter}()?->format('Y-m-d H:i:s'),",
-                'bool' => "            '{$colName}' => (int) \$entity->{$getter}(),",
-                default => "            '{$colName}' => \$entity->{$getter}(),",
-            };
+            $bindStatements[] = $this->buildBindValueLine($colName, $getter, $column);
         }
 
         $cols = implode(', ', $columnNames);
         $vals = implode(', ', $placeholders);
-        $params = implode("\n", $paramBindings);
+        $binds = implode("\n", $bindStatements);
         $primaryProperty = EntityGenerator::snakeToCamelCase($primaryKey);
 
         return <<<PHP
@@ -230,9 +274,8 @@ final class RepositoryGenerator
             {
                 \$sql = 'INSERT INTO `{$tableName}` ({$cols}) VALUES ({$vals})';
                 \$statement = \$this->pdo->prepare(\$sql);
-                \$statement->execute([
-        {$params}
-                ]);
+        {$binds}
+                \$statement->execute();
 
                 \$reflection = new \\ReflectionProperty(\$entity, '{$primaryProperty}');
                 \$reflection->setValue(\$entity, (int) \$this->pdo->lastInsertId());
@@ -244,12 +287,13 @@ final class RepositoryGenerator
     }
 
     /**
-     * Build the update method with prepared statement parameter bindings
+     * Build the update method with bindValue parameter bindings
      *
      * @param string $className The entity class name
      * @param string $tableName The database table name
      * @param string $primaryKey The primary key column name
      * @param array<int, array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $nonPrimaryColumns
+     * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $allColumns
      * @return string The update method source code
      */
     private function buildUpdateMethod(
@@ -257,9 +301,10 @@ final class RepositoryGenerator
         string $tableName,
         string $primaryKey,
         array $nonPrimaryColumns,
+        array $allColumns,
     ): string {
         $setClauses = [];
-        $paramBindings = [];
+        $bindStatements = [];
 
         foreach ($nonPrimaryColumns as $column) {
             $colName = $column['name'];
@@ -267,27 +312,24 @@ final class RepositoryGenerator
             $getter = 'get' . ucfirst($property);
             $setClauses[] = "`{$colName}` = :{$colName}";
 
-            $paramBindings[] = match ($column['phpType']) {
-                '\\DateTimeImmutable' => "            '{$colName}' => \$entity->{$getter}()?->format('Y-m-d H:i:s'),",
-                'bool' => "            '{$colName}' => (int) \$entity->{$getter}(),",
-                default => "            '{$colName}' => \$entity->{$getter}(),",
-            };
+            $bindStatements[] = $this->buildBindValueLine($colName, $getter, $column);
         }
 
         $primaryProperty = EntityGenerator::snakeToCamelCase($primaryKey);
         $primaryGetter = 'get' . ucfirst($primaryProperty);
+        $primaryPhpType = $this->getColumnPhpType($primaryKey, $allColumns);
+        $primaryPdoType = $this->resolvePdoParamType($primaryPhpType);
         $sets = implode(', ', $setClauses);
-        $params = implode("\n", $paramBindings);
+        $binds = implode("\n", $bindStatements);
 
         return <<<PHP
             public function update({$className} \$entity): {$className}
             {
                 \$sql = 'UPDATE `{$tableName}` SET {$sets} WHERE `{$primaryKey}` = :id';
                 \$statement = \$this->pdo->prepare(\$sql);
-                \$statement->execute([
-        {$params}
-                    'id' => \$entity->{$primaryGetter}(),
-                ]);
+        {$binds}
+                \$statement->bindValue(':id', \$entity->{$primaryGetter}(), {$primaryPdoType});
+                \$statement->execute();
 
                 return \$entity;
             }

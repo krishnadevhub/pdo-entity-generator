@@ -236,7 +236,7 @@ class TestMyTableRepository
 | `update($entity)` | Updates an existing record by primary key | `Entity` |
 | `delete($id)` | Deletes a record by primary key | `bool` |
 
-All queries use **prepared statements** with named parameters to prevent SQL injection.
+All queries use **prepared statements** with `bindValue()` and explicit `PDO::PARAM_*` type constants to enforce data types and prevent SQL injection.
 
 ### Using Generated Classes
 
@@ -342,7 +342,7 @@ kdevhubin/pdoentitygenerator
 3. **Config Loader** (`ConfigLoader`) — Reads `config/pdoentitygenerator.yaml`, merges with defaults, and validates required fields
 4. **Table Inspector** (`TableInspector`) — Executes `DESCRIBE <table>` to retrieve column metadata (name, type, nullability, primary key)
 5. **Entity Generator** (`EntityGenerator`) — Produces a POPO class with typed properties, getters, setters, and snake_case→camelCase conversion
-6. **Repository Generator** (`RepositoryGenerator`) — Produces a repository class with `find`, `findAll`, `insert`, `update`, `delete` methods using prepared statements
+6. **Repository Generator** (`RepositoryGenerator`) — Produces a repository class with `find`, `findAll`, `insert`, `update`, `delete` methods using `bindValue()` with explicit `PDO::PARAM_*` type constants
 7. **Post-Install Handler** (`PostInstallHandler`) — Composer Plugin (implements `PluginInterface` and `EventSubscriberInterface`) that subscribes to `POST_INSTALL_CMD` and `POST_UPDATE_CMD` events to auto-create `config/pdoentitygenerator.yaml` in the host project when the package is installed
 
 ---
@@ -497,7 +497,8 @@ To add support for a new SQL data type:
 
 3. If the type requires special handling in generated code (e.g. custom hydration or parameter binding), update the corresponding `match` expressions in:
    - `src/Generator/RepositoryGenerator.php` → `buildHydrateBody()` for reading from DB
-   - `src/Generator/RepositoryGenerator.php` → `buildInsertMethod()` and `buildUpdateMethod()` for writing to DB
+   - `src/Generator/RepositoryGenerator.php` → `buildBindValueLine()` for writing to DB
+   - `src/Generator/RepositoryGenerator.php` → `resolvePdoParamType()` if a new PDO parameter type is needed
 
 ### Modifying Generated Code Templates
 
