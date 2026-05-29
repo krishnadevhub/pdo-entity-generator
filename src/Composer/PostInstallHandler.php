@@ -97,10 +97,12 @@ final class PostInstallHandler implements PluginInterface, EventSubscriberInterf
 
         if (!is_dir($configDir)) {
             mkdir($configDir, 0755, true);
+            chmod($configDir, 0775);
             $io->write('<info>pdoentitygenerator:</info> Created config/ directory.');
         }
 
         file_put_contents($configFile, ConfigLoader::getDefaultConfigContent());
+        chmod($configFile, 0666);
         $io->write(
             '<info>pdoentitygenerator:</info> Created config/pdoentitygenerator.yaml'
             . ' — please update with your database credentials.'
