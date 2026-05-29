@@ -8,7 +8,19 @@ use kdevhub\PdoEntityGenerator\Config\ConfigLoader;
 use kdevhub\PdoEntityGenerator\Database\TableInspector;
 use kdevhub\PdoEntityGenerator\Generator\EntityGenerator;
 use kdevhub\PdoEntityGenerator\Generator\RepositoryGenerator;
+use PDO;
+use PDOException;
+use RuntimeException;
 
+/**
+ * CLI command that orchestrates entity and repository generation
+ *
+ * Parses command-line arguments, loads configuration, connects to the
+ * database, inspects the table schema, and generates Entity and Repository
+ * PHP source files in the configured output directories.
+ *
+ * @package kdevhub\PdoEntityGenerator\Command
+ */
 final class GenerateEntityCommand
 {
     private const string USAGE = <<<'TEXT'
@@ -26,7 +38,10 @@ final class GenerateEntityCommand
     TEXT;
 
     /**
-     * @param list<string> $argv
+     * Run the CLI command with the given arguments
+     *
+     * @param list<string> $argv The command-line arguments
+     * @return int Exit code (0 for success, 1 for failure)
      */
     public function run(array $argv): int
     {
@@ -50,12 +65,19 @@ final class GenerateEntityCommand
 
         try {
             return $this->execute($tableName);
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             $this->writeError($e->getMessage());
             return 1;
         }
     }
 
+    /**
+     * Execute the generation pipeline for the given table
+     *
+     * @param string $tableName The database table name to generate from
+     * @return int Exit code (0 for success)
+     * @throws RuntimeException If configuration, connection, or generation fails
+     */
     private function execute(string $tableName): int
     {
         $projectRoot = $this->resolveProjectRoot();
@@ -110,9 +132,13 @@ final class GenerateEntityCommand
         return 0;
     }
 
+    /**
+     * Resolve the project root by walking up from the current directory
+     *
+     * @return string Absolute path to the project root containing composer.json
+     */
     private function resolveProjectRoot(): string
     {
-        // Walk up from cwd looking for composer.json
         $dir = getcwd() ?: '.';
 
         while ($dir !== '/') {
@@ -126,9 +152,13 @@ final class GenerateEntityCommand
     }
 
     /**
+     * Create a PDO connection from the database configuration
+     *
      * @param array{host: string, port: int, dbname: string, username: string, password: string, driver: string} $dbConfig
+     * @return PDO The established database connection
+     * @throws RuntimeException If the connection cannot be established
      */
-    private function createPdoConnection(array $dbConfig): \PDO
+    private function createPdoConnection(array $dbConfig): PDO
     {
         $dsn = sprintf(
             '%s:host=%s;port=%d;dbname=%s;charset=utf8mb4',
@@ -139,13 +169,13 @@ final class GenerateEntityCommand
         );
 
         try {
-            $pdo = new \PDO($dsn, $dbConfig['username'], $dbConfig['password'], [
-                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-                \PDO::ATTR_EMULATE_PREPARES => false,
+            $pdo = new PDO($dsn, $dbConfig['username'], $dbConfig['password'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
             ]);
-        } catch (\PDOException $e) {
-            throw new \RuntimeException(
+        } catch (PDOException $e) {
+            throw new RuntimeException(
                 sprintf('Database connection failed: %s', $e->getMessage())
             );
         }
@@ -153,6 +183,17 @@ final class GenerateEntityCommand
         return $pdo;
     }
 
+    /**
+     * Write generated source code to a file in the specified directory
+     *
+     * Creates the output directory if it does not exist.
+     *
+     * @param string $projectRoot Absolute path to the project root
+     * @param string $directory The relative output directory path
+     * @param string $filename The output file name
+     * @param string $content The generated PHP source code
+     * @return void
+     */
     private function writeFile(string $projectRoot, string $directory, string $filename, string $content): void
     {
         $dirPath = rtrim($projectRoot, '/') . '/' . $directory;
@@ -167,11 +208,23 @@ final class GenerateEntityCommand
         $this->writeLine(sprintf('  Created: %s/%s', $directory, $filename));
     }
 
+    /**
+     * Write a message to standard output
+     *
+     * @param string $message The message to output
+     * @return void
+     */
     private function writeLine(string $message): void
     {
         fwrite(STDOUT, $message . "\n");
     }
 
+    /**
+     * Write an error message to standard error
+     *
+     * @param string $message The error message to output
+     * @return void
+     */
     private function writeError(string $message): void
     {
         fwrite(STDERR, 'Error: ' . $message . "\n");
