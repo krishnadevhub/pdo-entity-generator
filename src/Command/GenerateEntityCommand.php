@@ -200,12 +200,12 @@ final class GenerateEntityCommand
 
         if (!is_dir($dirPath)) {
             mkdir($dirPath, 0755, true);
-            chmod($dirPath, 0775);
+            chmod($dirPath, 0777);
         }
 
         $filePath = $dirPath . '/' . $filename;
         file_put_contents($filePath, $content);
-        chmod($filePath, 0664);
+        chmod($filePath, 0666);
 
         $this->writeLine(sprintf('  Created: %s/%s', $directory, $filename));
     }
