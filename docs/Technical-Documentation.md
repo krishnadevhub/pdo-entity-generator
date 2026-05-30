@@ -17,6 +17,7 @@
   - [TableInspector](#tableinspector)
   - [EntityGenerator](#entitygenerator)
   - [RepositoryGenerator](#repositorygenerator)
+  - [PdoFactoryGenerator](#pdofactorygenerator)
 - [Data Flow](#data-flow)
   - [CLI Execution Pipeline](#cli-execution-pipeline)
   - [Composer Plugin Lifecycle](#composer-plugin-lifecycle)
@@ -25,6 +26,7 @@
 - [Code Generation Internals](#code-generation-internals)
   - [Entity Generation](#entity-generation)
   - [Repository Generation](#repository-generation)
+  - [PdoFactory Generation](#pdofactory-generation)
   - [Heredoc Template System](#heredoc-template-system)
   - [Type Handling in Generated Code](#type-handling-in-generated-code)
 - [Error Handling Strategy](#error-handling-strategy)
@@ -70,8 +72,9 @@ bin/pdoentitygenerator
         ├── TableInspector
         │     └── PDO (runtime)
         ├── EntityGenerator
-        └── RepositoryGenerator
-              └── EntityGenerator (static methods only)
+        ├── RepositoryGenerator
+        │     └── EntityGenerator (static methods only)
+        └── PdoFactoryGenerator
 
 PostInstallHandler (Composer Plugin — independent entry point)
   ├── Composer\Plugin\PluginInterface
@@ -82,6 +85,7 @@ PostInstallHandler (Composer Plugin — independent entry point)
 Key observations:
 
 - `RepositoryGenerator` depends on `EntityGenerator` for the static utility methods `snakeToCamelCase()` and `snakeToPascalCase()`. This is the only cross-generator coupling.
+- `PdoFactoryGenerator` is fully self-contained with no dependencies on other generators.
 - `PostInstallHandler` uses `ConfigLoader::getDefaultConfigContent()` as a static call to avoid duplicating the default YAML template.
 - `PDO` is created inside `GenerateEntityCommand` and passed to `TableInspector` via constructor injection.
 
@@ -111,6 +115,7 @@ Orchestrates the entire CLI generation pipeline. Parses arguments, loads configu
 | `resolveProjectRoot` | `resolveProjectRoot(): string` | Absolute path | Walks up from `getcwd()` to find the nearest directory containing `composer.json`. |
 | `createPdoConnection` | `createPdoConnection(array $dbConfig): PDO` | PDO instance | Creates a PDO connection with exception mode, associative fetch, and native prepared statements enabled. |
 | `writeFile` | `writeFile(string $projectRoot, string $directory, string $filename, string $content): void` | void | Writes generated source code to disc. Creates the output directory if it does not exist. |
+| `generateFactory` | `generateFactory(string $projectRoot, string $directory, string $namespace): void` | void | Generates the `PdoFactory.php` class in the configured factory directory. Skips if the file already exists. |
 | `writeLine` | `writeLine(string $message): void` | void | Writes a message to `STDOUT`. |
 | `writeError` | `writeError(string $message): void` | void | Writes an error message to `STDERR` with `Error: ` prefix. |
 
@@ -218,8 +223,10 @@ Loads, validates, and merges YAML configuration with defaults.
     'output' => [
         'entity_namespace'     => 'App\\Entity',
         'repository_namespace' => 'App\\Repository',
+        'factory_namespace'    => 'App\\Factory',
         'entity_directory'     => 'src/Entity',
         'repository_directory' => 'src/Repository',
+        'factory_directory'    => 'src/Factory',
     ],
 ]
 ```
@@ -375,6 +382,46 @@ Generates PHP Entity class source code from database column metadata.
 
 ---
 
+### PdoFactoryGenerator
+
+**Namespace**: `kdevhub\PdoEntityGenerator\Generator`
+**File**: `src/Generator/PdoFactoryGenerator.php`
+**Modifier**: `final`
+
+Generates a framework-agnostic PHP factory class that reads database credentials from `config/pdoentitygenerator.yaml` and returns a configured `PDO` instance. Uses a singleton pattern to reuse the same connection throughout the request lifecycle. Works in plain PHP, Symfony (via `factory:` in `services.yaml`), Laravel, Slim, or any PHP project.
+
+#### Public Methods
+
+| Method | Signature | Return | Description |
+|--------|-----------|--------|-------------|
+| `generate` | `generate(string $namespace): string` | PHP source code | Generates the full `PdoFactory` class with `create()`, `reset()`, `loadDatabaseConfig()`, and `resolveProjectRoot()` methods. |
+
+#### Generated Class Structure
+
+The generated `PdoFactory` class contains:
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `CONFIG_PATH` | `const string` | Relative path to the YAML config file (`config/pdoentitygenerator.yaml`) |
+| `DB_DEFAULTS` | `const array` | Default database configuration values |
+| `$instance` | `private static ?PDO` | Singleton instance — holds the cached PDO connection |
+| `create(?string $configFile = null): PDO` | `public static` | Returns the singleton PDO connection, creating it on first call. Accepts an optional config file path override. |
+| `reset(): void` | `public static` | Clears the singleton instance, forcing a new connection on the next `create()` call. |
+| `loadDatabaseConfig(?string $configFile): array` | `private static` | Loads and validates database configuration from the YAML file. |
+| `resolveProjectRoot(): string` | `private static` | Walks up from `__DIR__` to find the nearest directory containing `composer.json`. |
+
+#### PDO Configuration
+
+The generated factory creates PDO connections with the same attributes as `GenerateEntityCommand::createPdoConnection()`:
+
+| Attribute | Value | Purpose |
+|-----------|-------|---------|
+| `PDO::ATTR_ERRMODE` | `PDO::ERRMODE_EXCEPTION` | Throws `PDOException` on query errors |
+| `PDO::ATTR_DEFAULT_FETCH_MODE` | `PDO::FETCH_ASSOC` | Returns associative arrays by default |
+| `PDO::ATTR_EMULATE_PREPARES` | `false` | Uses native prepared statements for security |
+
+---
+
 ### RepositoryGenerator
 
 **Namespace**: `kdevhub\PdoEntityGenerator\Generator`
@@ -495,7 +542,9 @@ argv[2] = "users"           │
                             │     └── buildUpdateMethod()
                             │
                             ├── writeFile("src/Entity/Users.php")
-                            └── writeFile("src/Repository/UsersRepository.php")
+                            ├── writeFile("src/Repository/UsersRepository.php")
+                            └── generateFactory("src/Factory", "App\\Factory")
+                                  └── PdoFactoryGenerator::generate()
 ```
 
 ### Composer Plugin Lifecycle
@@ -553,8 +602,10 @@ array{
     output: array{
         entity_namespace: string,
         repository_namespace: string,
+        factory_namespace: string,
         entity_directory: string,
         repository_directory: string,
+        factory_directory: string,
     },
 }
 ```
@@ -571,6 +622,14 @@ The `EntityGenerator` builds a class in four stages:
 2. **Getter methods** — generates a `getPropertyName(): Type` method for every column.
 3. **Setter methods** — generates a `setPropertyName(Type $val): self` method for every non-primary column.
 4. **Class assembly** — wraps properties and methods in the class template with `declare(strict_types=1)`, namespace, and class declaration.
+
+### PdoFactory Generation
+
+The `PdoFactoryGenerator` produces a self-contained factory class in a single stage:
+
+1. **Class assembly** — generates the complete `PdoFactory` class via a heredoc template, interpolating the provided namespace. The generated class uses a singleton pattern with a static `$instance` property, `CONFIG_PATH` and `DB_DEFAULTS` constants, a public `create()` method that returns the cached connection (or creates one on first call), a public `reset()` method to clear the singleton, a private `loadDatabaseConfig()` method that reads and validates the YAML config, and a private `resolveProjectRoot()` method that walks up from `__DIR__` to find `composer.json`.
+
+The factory is generated once per project and skipped on subsequent runs if the file already exists, ensuring it does not overwrite any user customisations.
 
 ### Repository Generation
 
@@ -726,7 +785,7 @@ The CLI entry point (`bin/pdoentitygenerator`) resolves the autoloader from two 
 The current implementation is MySQL/MariaDB-specific due to:
 
 1. The `DESCRIBE` query in `TableInspector::inspect()`.
-2. The DSN format in `GenerateEntityCommand::createPdoConnection()`.
+2. The DSN format in `GenerateEntityCommand::createPdoConnection()` and the generated `PdoFactory`.
 3. The `TYPE_MAP` in `TableInspector`.
 
 To add support for another database (e.g. PostgreSQL):

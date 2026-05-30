@@ -7,6 +7,7 @@ namespace kdevhub\PdoEntityGenerator\Command;
 use kdevhub\PdoEntityGenerator\Config\ConfigLoader;
 use kdevhub\PdoEntityGenerator\Database\TableInspector;
 use kdevhub\PdoEntityGenerator\Generator\EntityGenerator;
+use kdevhub\PdoEntityGenerator\Generator\PdoFactoryGenerator;
 use kdevhub\PdoEntityGenerator\Generator\RepositoryGenerator;
 use PDO;
 use PDOException;
@@ -126,6 +127,12 @@ final class GenerateEntityCommand
             $repositoryCode,
         );
 
+        $this->generateFactory(
+            $projectRoot,
+            $config['output']['factory_directory'],
+            $config['output']['factory_namespace'],
+        );
+
         $this->writeLine('');
         $this->writeLine('Generation complete!');
 
@@ -208,6 +215,42 @@ final class GenerateEntityCommand
         chmod($filePath, 0666);
 
         $this->writeLine(sprintf('  Created: %s/%s', $directory, $filename));
+    }
+
+    /**
+     * Generate the PdoFactory class for framework-agnostic PDO instantiation
+     *
+     * Creates PdoFactory.php in the configured factory directory if it does
+     * not already exist, enabling autowiring in Symfony or manual use in
+     * any PHP project.
+     *
+     * @param string $projectRoot Absolute path to the project root
+     * @param string $directory The relative output directory for the factory
+     * @param string $namespace The namespace for the generated factory class
+     * @return void
+     */
+    private function generateFactory(string $projectRoot, string $directory, string $namespace): void
+    {
+        $dirPath = rtrim($projectRoot, '/') . '/' . $directory;
+        $filePath = $dirPath . '/PdoFactory.php';
+
+        if (file_exists($filePath)) {
+            $this->writeLine('  Skipped: ' . $directory . '/PdoFactory.php (already exists)');
+            return;
+        }
+
+        if (!is_dir($dirPath)) {
+            mkdir($dirPath, 0755, true);
+            chmod($dirPath, 0777);
+        }
+
+        $generator = new PdoFactoryGenerator();
+        $content = $generator->generate($namespace);
+
+        file_put_contents($filePath, $content);
+        chmod($filePath, 0666);
+
+        $this->writeLine('  Created: ' . $directory . '/PdoFactory.php');
     }
 
     /**
