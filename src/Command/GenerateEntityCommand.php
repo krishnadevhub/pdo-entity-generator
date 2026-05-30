@@ -109,6 +109,7 @@ final class GenerateEntityCommand
             $className,
             $config['output']['entity_namespace'],
             $config['output']['repository_namespace'],
+            $config['output']['factory_namespace'],
             $tableName,
             $columns,
         );

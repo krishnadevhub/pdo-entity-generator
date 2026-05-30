@@ -250,10 +250,11 @@ The generator also creates a `PdoFactory` class that reads your database credent
 #### Plain PHP Usage
 
 ```php
-// Use the factory to create a PDO connection from config
-$pdo = \App\Factory\PdoFactory::create();
+// Option 1: Use the static create() method (recommended)
+$repository = \App\Repository\TestMyTableRepository::create();
 
-// Instantiate the repository
+// Option 2: Manual PDO injection
+$pdo = \App\Factory\PdoFactory::create();
 $repository = new \App\Repository\TestMyTableRepository($pdo);
 ```
 
@@ -270,14 +271,16 @@ services:
 ### Using Generated Classes
 
 ```php
-// Use the factory (reads credentials from config/pdoentitygenerator.yaml)
+// Option 1: Use the static create() method (uses PdoFactory internally)
+$repository = \App\Repository\TestMyTableRepository::create();
+
+// Option 2: Manual PDO injection via PdoFactory
 $pdo = \App\Factory\PdoFactory::create();
-
-// Or create a PDO connection manually
-// $pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
-
-// Instantiate the repository
 $repository = new \App\Repository\TestMyTableRepository($pdo);
+
+// Option 3: Manual PDO connection
+// $pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
+// $repository = new \App\Repository\TestMyTableRepository($pdo);
 
 // Find by ID
 $entity = $repository->find(1);
