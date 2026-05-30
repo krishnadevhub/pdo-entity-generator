@@ -14,6 +14,7 @@
   - [Generating Classes](#generating-classes)
   - [Generated Entity](#generated-entity)
   - [Generated Repository](#generated-repository)
+  - [Generated PdoFactory](#generated-pdofactory)
   - [Using Generated Classes in Your Project](#using-generated-classes-in-your-project)
 - [Architecture](#architecture)
   - [Project Structure](#project-structure)
@@ -40,12 +41,14 @@ The **PDO Entity Generator** (`kdevhubin/pdoentitygenerator`) is a CLI tool dist
 
 1. **Entity** — a plain PHP object (POPO) with typed properties, getters, and fluent setters.
 2. **Repository** — a PDO-based data-access class with `find`, `findAll`, `insert`, `update`, and `delete` methods using prepared statements.
+3. **PdoFactory** — a framework-agnostic factory class that reads database credentials from `config/pdoentitygenerator.yaml` and returns a configured `PDO` instance. Uses a singleton pattern to reuse the same connection throughout the request lifecycle.
 
 The tool intentionally avoids any ORM dependency (e.g. Doctrine). All database interaction uses raw PDO with parameterised queries, making it suitable for projects that require lightweight data-access layers without framework coupling.
 
 ### Key Features
 
 - **Zero-framework dependency** — works in any PHP 8.4+ project with PDO enabled.
+- **PdoFactory** — generates a singleton factory class that provides a reusable `PDO` connection from config, compatible with any framework or plain PHP.
 - **Composer Plugin** — automatically creates a default configuration file on first install.
 - **Strict typing** — all generated code uses `declare(strict_types=1)` and PHP 8.4 typed properties.
 - **Fluent setters** — setter methods return `self` for method chaining.
@@ -113,8 +116,10 @@ database:
 output:
     entity_namespace: App\Entity
     repository_namespace: App\Repository
+    factory_namespace: App\Factory
     entity_directory: src/Entity
     repository_directory: src/Repository
+    factory_directory: src/Factory
 ```
 
 > **Important**: The `database.dbname` field is required. The generator will not run without it.
@@ -143,13 +148,14 @@ This generates:
 
 - `src/Entity/TestMyTable.php` — Entity class with typed properties, getters, and setters.
 - `src/Repository/TestMyTableRepository.php` — Repository class with full CRUD operations.
+- `src/Factory/PdoFactory.php` — Framework-agnostic factory for creating configured PDO connections (skipped if already exists).
 
 The tool will:
 
 1. Read `config/pdoentitygenerator.yaml` for database connection details.
 2. Connect to the database via PDO.
 3. Inspect the table schema using `DESCRIBE` (column names, types, nullability, primary key).
-4. Generate an Entity class and a Repository class in the configured output directories.
+4. Generate an Entity class, a Repository class, and a PdoFactory class in the configured output directories.
 
 ### Generated Entity
 
@@ -241,11 +247,35 @@ Key characteristics:
 - The `hydrateEntity` method maps database rows to entity objects, handling type casting and `DateTimeImmutable` construction.
 - `DateTimeImmutable` values are formatted as `'Y-m-d H:i:s'` for insert/update operations.
 
+### Generated PdoFactory
+
+The generator also creates a `PdoFactory` class that reads your database credentials from `config/pdoentitygenerator.yaml` and returns a configured `PDO` instance. Uses a singleton pattern — subsequent calls to `create()` return the same connection. This is framework-agnostic and works in any PHP project.
+
+#### Plain PHP Usage
+
+```php
+$pdo = \App\Factory\PdoFactory::create();
+$repository = new \App\Repository\TestMyTableRepository($pdo);
+```
+
+#### Symfony Usage (services.yaml)
+
+Register the factory as a service to enable autowiring for all repositories:
+
+```yaml
+services:
+    PDO:
+        factory: ['App\Factory\PdoFactory', 'create']
+```
+
 ### Using Generated Classes in Your Project
 
 ```php
-// Create a PDO connection
-$pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
+// Use the factory (reads credentials from config/pdoentitygenerator.yaml)
+$pdo = \App\Factory\PdoFactory::create();
+
+// Or create a PDO connection manually
+// $pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
 
 // Instantiate the repository
 $repository = new \App\Repository\TestMyTableRepository($pdo);
@@ -292,6 +322,7 @@ kdevhubin/pdoentitygenerator
 │   │   └── TableInspector.php          # Reads table schema via DESCRIBE query
 │   └── Generator/
 │       ├── EntityGenerator.php         # Generates Entity class source code
+│       ├── PdoFactoryGenerator.php     # Generates PdoFactory class source code
 │       └── RepositoryGenerator.php     # Generates Repository class source code
 ├── composer.json
 ├── .gitignore
@@ -322,7 +353,8 @@ kdevhubin/pdoentitygenerator
 │  5. Inspects table via TableInspector                                │
 │  6. Generates Entity via EntityGenerator                             │
 │  7. Generates Repository via RepositoryGenerator                     │
-│  8. Writes both files to configured output directories               │
+│  8. Generates PdoFactory via PdoFactoryGenerator (if not exists)     │
+│  9. Writes all files to configured output directories                │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │
                  ┌─────────────┼─────────────┐
@@ -347,7 +379,8 @@ kdevhubin/pdoentitygenerator
 - Parses command-line arguments: expects `table <table_name>`.
 - Supports `--help` flag for usage information.
 - Resolves the project root by walking up from the current working directory until a `composer.json` is found.
-- Orchestrates the full generation pipeline: config → connection → inspection → generation → file writing.
+- Orchestrates the full generation pipeline: config → connection → inspection → generation → factory → file writing.
+- Generates the `PdoFactory` class via `PdoFactoryGenerator` (skips if the file already exists).
 - Provides console output at each step for user feedback.
 
 #### 3. PostInstallHandler (`src/Composer/PostInstallHandler.php`)
@@ -382,7 +415,17 @@ kdevhubin/pdoentitygenerator
 - Primary key properties are nullable and have no setter.
 - Normalises heredoc indentation to standard 4-space indent.
 
-#### 7. RepositoryGenerator (`src/Generator/RepositoryGenerator.php`)
+#### 8. PdoFactoryGenerator (`src/Generator/PdoFactoryGenerator.php`)
+
+- Generates a self-contained `PdoFactory` class via a heredoc template.
+- The generated class reads database credentials from `config/pdoentitygenerator.yaml` at runtime using `Symfony\Component\Yaml\Yaml`.
+- Returns a configured `PDO` instance with exception mode, associative fetch, and native prepared statements.
+- Uses a singleton pattern — `create()` returns the same connection on subsequent calls, avoiding redundant connections.
+- Provides a `reset()` method to clear the singleton and force a new connection on the next `create()` call.
+- Resolves the project root by walking up from `__DIR__` to find `composer.json`.
+- Framework-agnostic: works in plain PHP, Symfony (via `factory:` in `services.yaml`), Laravel, Slim, or any PHP project.
+
+#### 9. RepositoryGenerator (`src/Generator/RepositoryGenerator.php`)
 
 - Generates a repository class with constructor-promoted `readonly PDO` dependency.
 - Creates five CRUD methods: `find`, `findAll`, `insert`, `update`, `delete`.
@@ -453,8 +496,10 @@ All configuration is stored in `config/pdoentitygenerator.yaml`.
 |-----|-------------|---------|
 | `output.entity_namespace` | PHP namespace for generated entity classes | `App\Entity` |
 | `output.repository_namespace` | PHP namespace for generated repository classes | `App\Repository` |
+| `output.factory_namespace` | PHP namespace for generated factory class | `App\Factory` |
 | `output.entity_directory` | File system directory for entity files (relative to project root) | `src/Entity` |
 | `output.repository_directory` | File system directory for repository files (relative to project root) | `src/Repository` |
+| `output.factory_directory` | File system directory for factory file (relative to project root) | `src/Factory` |
 
 ---
 
@@ -542,8 +587,10 @@ This project follows strict PHP coding standards. Key rules:
    output:
        entity_namespace: App\Entity
        repository_namespace: App\Repository
+       factory_namespace: App\Factory
        entity_directory: src/Entity
        repository_directory: src/Repository
+       factory_directory: src/Factory
    ```
 
 5. **Run the generator** to verify everything works:
@@ -574,6 +621,7 @@ The generated Entity and Repository code is built using PHP heredoc templates wi
 
 - **Entity template**: `src/Generator/EntityGenerator.php` → `buildClassTemplate()`, `buildGetter()`, `buildSetter()`
 - **Repository template**: `src/Generator/RepositoryGenerator.php` → `generate()`, `buildInsertMethod()`, `buildUpdateMethod()`, `buildHydrateBody()`
+- **PdoFactory template**: `src/Generator/PdoFactoryGenerator.php` → `generate()`
 
 When modifying templates:
 
@@ -593,15 +641,17 @@ php bin/pdoentitygenerator table test_my_table
 # 2. Check the generated files for syntax errors
 php -l src/Entity/TestMyTable.php
 php -l src/Repository/TestMyTableRepository.php
+php -l src/Factory/PdoFactory.php
 
 # 3. Verify the generated code follows expected patterns
 #    - Entity has correct namespace, properties, getters, setters
 #    - Repository has find, findAll, insert, update, delete methods
+#    - PdoFactory reads config and returns configured PDO instance
 #    - All methods use prepared statements
 #    - snake_case columns are correctly mapped to camelCase properties
 
 # 4. Clean up generated test files
-rm -f src/Entity/TestMyTable.php src/Repository/TestMyTableRepository.php
+rm -f src/Entity/TestMyTable.php src/Repository/TestMyTableRepository.php src/Factory/PdoFactory.php
 ```
 
 ### Submitting Changes
@@ -657,7 +707,7 @@ The specified table does not exist in the configured database. Check:
 
 ### Generated files have incorrect namespace
 
-Update the `output.entity_namespace` and `output.repository_namespace` values in `config/pdoentitygenerator.yaml` to match your project's PSR-4 autoload configuration.
+Update the `output.entity_namespace`, `output.repository_namespace`, and `output.factory_namespace` values in `config/pdoentitygenerator.yaml` to match your project's PSR-4 autoload configuration.
 
 ---
 

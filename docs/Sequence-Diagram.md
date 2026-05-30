@@ -81,6 +81,7 @@ sequenceDiagram
     participant TableInspector
     participant EntityGen as EntityGenerator
     participant RepoGen as RepositoryGenerator
+    participant FactoryGen as PdoFactoryGenerator
     participant FileSystem
 
     User->>CLI: vendor/bin/pdoentitygenerator table users
@@ -319,6 +320,36 @@ sequenceDiagram
     deactivate FileSystem
     Command-->>User: STDOUT: "Created: src/Repository/UsersRepository.php"
 
+    %% === PdoFactory Generation ===
+    Command->>Command: generateFactory(projectRoot, factoryDir, factoryNamespace)
+
+    Command->>FileSystem: file_exists(src/Factory/PdoFactory.php)
+    activate FileSystem
+
+    alt PdoFactory already exists
+        FileSystem-->>Command: true
+        Command-->>User: STDOUT: "Skipped: src/Factory/PdoFactory.php (already exists)"
+    else PdoFactory does not exist
+        FileSystem-->>Command: false
+
+        alt Factory directory missing
+            Command->>FileSystem: mkdir(src/Factory, 0755)
+            Command->>FileSystem: chmod(src/Factory, 0777)
+        end
+
+        Command->>FactoryGen: new PdoFactoryGenerator()
+        Command->>FactoryGen: generate(factoryNamespace)
+        activate FactoryGen
+        FactoryGen-->>Command: PdoFactory PHP source code
+        deactivate FactoryGen
+
+        Command->>FileSystem: file_put_contents("PdoFactory.php", code)
+        Command->>FileSystem: chmod("PdoFactory.php", 0666)
+        Command-->>User: STDOUT: "Created: src/Factory/PdoFactory.php"
+    end
+
+    deactivate FileSystem
+
     Command-->>User: STDOUT: "Generation complete!"
     Command-->>CLI: return 0
     deactivate Command
@@ -476,6 +507,7 @@ sequenceDiagram
 | **TableInspector** | `TableInspector` | Inspects table schema via `DESCRIBE` |
 | **EntityGen** | `EntityGenerator` | Generates Entity class source code |
 | **RepoGen** | `RepositoryGenerator` | Generates Repository class source code |
+| **FactoryGen** | `PdoFactoryGenerator` | Generates PdoFactory class source code |
 | **PostInstallHandler** | `PostInstallHandler` | Composer Plugin — auto-creates config file |
 | **FileSystem** | PHP filesystem functions | Directory creation and file writing |
 | **Repo** | Generated `*Repository` | Runtime CRUD operations (generated output) |

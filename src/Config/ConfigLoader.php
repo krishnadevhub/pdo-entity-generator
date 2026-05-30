@@ -31,8 +31,10 @@ final class ConfigLoader
         'output' => [
             'entity_namespace' => 'App\\Entity',
             'repository_namespace' => 'App\\Repository',
+            'factory_namespace' => 'App\\Factory',
             'entity_directory' => 'src/Entity',
             'repository_directory' => 'src/Repository',
+            'factory_directory' => 'src/Factory',
         ],
     ];
 
@@ -52,8 +54,10 @@ final class ConfigLoader
      *     output: array{
      *         entity_namespace: string,
      *         repository_namespace: string,
+     *         factory_namespace: string,
      *         entity_directory: string,
      *         repository_directory: string,
+     *         factory_directory: string,
      *     },
      * }
      * @throws RuntimeException If the configuration file is missing or invalid
@@ -104,8 +108,10 @@ database:
 output:
     entity_namespace: App\Entity
     repository_namespace: App\Repository
+    factory_namespace: App\Factory
     entity_directory: src/Entity
     repository_directory: src/Repository
+    factory_directory: src/Factory
 YAML;
     }
 
@@ -125,8 +131,10 @@ YAML;
      *     output: array{
      *         entity_namespace: string,
      *         repository_namespace: string,
+     *         factory_namespace: string,
      *         entity_directory: string,
      *         repository_directory: string,
+     *         factory_directory: string,
      *     },
      * }
      * @throws RuntimeException If the database name is not specified
