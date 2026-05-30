@@ -232,6 +232,7 @@ class TestMyTableRepository
 
 | Method | Description | Return Type |
 |--------|-------------|-------------|
+| `create()` | Static factory method — creates an instance using `PdoFactory::create()` | `self` |
 | `find($id)` | Finds a single entity by primary key | `?Entity` (null if not found) |
 | `findAll()` | Returns all entities from the table | `Entity[]` |
 | `insert($entity)` | Inserts a new record; sets the auto-generated ID on the entity via reflection | `Entity` |
@@ -271,14 +272,16 @@ services:
 ### Using Generated Classes in Your Project
 
 ```php
-// Use the factory (reads credentials from config/pdoentitygenerator.yaml)
+// Option 1: Use the static create() method (uses PdoFactory internally)
+$repository = \App\Repository\TestMyTableRepository::create();
+
+// Option 2: Manual PDO injection via PdoFactory
 $pdo = \App\Factory\PdoFactory::create();
-
-// Or create a PDO connection manually
-// $pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
-
-// Instantiate the repository
 $repository = new \App\Repository\TestMyTableRepository($pdo);
+
+// Option 3: Manual PDO connection
+// $pdo = new \PDO('mysql:host=127.0.0.1;dbname=my_database', 'root', 'secret');
+// $repository = new \App\Repository\TestMyTableRepository($pdo);
 
 // Find by ID
 $entity = $repository->find(1);

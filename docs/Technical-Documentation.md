@@ -434,7 +434,7 @@ Generates PHP Repository class source code with PDO-based CRUD methods.
 
 | Method | Signature | Return | Description |
 |--------|-----------|--------|-------------|
-| `generate` | `generate(string $className, string $entityNamespace, string $repositoryNamespace, string $tableName, array $columns): string` | PHP source code | Generates the full repository class with all CRUD methods. |
+| `generate` | `generate(string $className, string $entityNamespace, string $repositoryNamespace, string $factoryNamespace, string $tableName, array $columns): string` | PHP source code | Generates the full repository class with all CRUD methods and a static `create()` factory method. |
 
 #### Private Methods
 
@@ -449,6 +449,10 @@ Generates PHP Repository class source code with PDO-based CRUD methods.
 | `buildUpdateMethod` | `buildUpdateMethod(string $className, string $tableName, string $primaryKey, array $nonPrimaryColumns, array $allColumns): string` | Method source | Builds the `update()` method with `bindValue()` parameter bindings. |
 
 #### Generated Method Specifications
+
+**`create(): self`** (static)
+- Creates a new repository instance using `PdoFactory::create()` for the database connection.
+- Provides a convenient alternative to manual constructor injection.
 
 **`find($id): ?Entity`**
 - SQL: `SELECT * FROM \`table\` WHERE \`pk\` = :id LIMIT 1`

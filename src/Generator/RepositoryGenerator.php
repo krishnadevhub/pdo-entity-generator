@@ -20,6 +20,7 @@ final class RepositoryGenerator
      * @param string $className The PascalCase entity class name
      * @param string $entityNamespace The namespace of the entity class
      * @param string $repositoryNamespace The namespace for the generated repository
+     * @param string $factoryNamespace The namespace of the generated PdoFactory class
      * @param string $tableName The database table name
      * @param list<array{name: string, phpType: string, nullable: bool, isPrimary: bool, hasDefault: bool}> $columns
      * @return string The complete PHP source code for the repository class
@@ -28,6 +29,7 @@ final class RepositoryGenerator
         string $className,
         string $entityNamespace,
         string $repositoryNamespace,
+        string $factoryNamespace,
         string $tableName,
         array $columns,
     ): string {
@@ -52,12 +54,21 @@ final class RepositoryGenerator
         namespace {$repositoryNamespace};
 
         use {$entityNamespace}\\{$className};
+        use {$factoryNamespace}\\PdoFactory;
 
         class {$repositoryClassName}
         {
             public function __construct(
                 private readonly \PDO \$pdo,
             ) {
+            }
+
+            /**
+             * Create an instance using PdoFactory for the database connection
+             */
+            public static function create(): self
+            {
+                return new self(PdoFactory::create());
             }
 
             public function find({$primaryPhpType} \$id): ?{$className}
